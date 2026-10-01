@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>高雄市立聯合醫院護理科－護理交接作業稽核</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.2/firebase-app-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.2/firebase-auth-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.2/firebase-firestore-compat.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+ body{font-family:'Noto Sans TC',sans-serif}
+ .print-only{display:none}
+ .report-table{width:100%;border-collapse:collapse;table-layout:fixed}
+ .report-table th,.report-table td{border:1px solid #222;padding:5px 3px;overflow-wrap:anywhere}
+ .report-table .side-cell{width:22px;writing-mode:vertical-rl;letter-spacing:.28em;text-align:center}
+ @media print{
+  @page{size:A4 portrait;margin:8mm}
+  body{background:white!important;color:#000!important}
+  header,footer,.no-print,#login-box,#detail-list{display:none!important}
+  main{width:100%!important;max-width:none!important;margin:0!important;padding:0!important}
+  .print-only{display:block!important}
+  .screen-only{display:none!important}
+  .print-surface{display:block!important;border:0!important;box-shadow:none!important;padding:0!important;margin:0!important;border-radius:0!important}
+  body.print-admin #view-survey{display:none!important}
+  body.print-admin #view-admin{display:block!important}
+  body.print-survey #view-admin{display:none!important}
+  body.print-survey #view-survey{display:block!important}
+  #report-sheet{font-size:10pt;line-height:1.3}
+  #report-sheet h2{font-size:16pt!important}
+  #report-sheet h3{font-size:13pt!important}
+  #report-sheet .report-table{font-size:8pt;line-height:1.1}
+  #report-sheet .report-table th,#report-sheet .report-table td{padding:1.5mm .7mm!important}
+  #report-sheet .report-table tr{break-inside:avoid}
+  #report-sheet .narrative{min-height:48mm;white-space:pre-wrap;overflow-wrap:anywhere}
+  #report-sheet input::placeholder{color:transparent}
+  #report-sheet input{border:0!important;background:transparent!important;padding:0!important;box-shadow:none!important;color:black!important}
+  #report-sheet .signature-line{display:block;border-bottom:1px solid #333;min-height:5mm}
+  #view-survey table{font-size:9pt}
+  #view-survey tr{break-inside:avoid}
+ }
+</style>
+</head>
+<body class="bg-amber-50/30 text-slate-800 min-h-screen flex flex-col">
+<header class="bg-gradient-to-r from-amber-100 to-orange-100 border-b border-amber-200 no-print">
+ <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap gap-3 justify-between items-center">
+  <div><h1 class="font-bold text-lg text-amber-950">高雄市立聯合醫院護理科</h1><p class="text-xs text-amber-800">護理交接作業稽核系統 <span class="opacity-70">v2026.10.01-1</span></p></div>
+  <span id="cloud-status" role="status" class="text-xs px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-full">Firebase 連線中</span>
+  <button id="retry-cloud" type="button" onclick="connectFirebase()" class="hidden text-xs underline text-red-700">重新連線</button>
+  <nav class="flex gap-2"><button id="tab-survey" type="button" onclick="showPage('survey')" class="px-4 py-2 rounded-lg bg-white text-amber-900 font-bold shadow-sm text-sm">填寫稽核表</button><button id="tab-admin" type="button" onclick="showPage('admin')" class="px-4 py-2 rounded-lg bg-amber-200 text-amber-900 text-sm">後台稽核結果 🔒</button></nav>
+ </div>
+</header>
+<main class="max-w-6xl w-full mx-auto px-4 py-6 flex-grow">
+ <section id="view-survey" class="print-surface bg-white rounded-2xl shadow-sm border border-amber-200 p-5 md:p-8">
+  <div class="text-center mb-6"><h2 class="text-xl md:text-2xl font-bold">高雄市立聯合醫院護理科</h2><p class="text-xs mt-1">（高雄榮民總醫院營運管理）</p><h3 class="text-lg font-bold mt-2 text-amber-900">護理交接作業稽核表</h3></div>
+  <p id="survey-status" role="status" class="no-print text-xs mb-4 text-amber-800">正在連線；送出成功才算儲存至 Firebase。</p>
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-amber-50 p-4 rounded-lg mb-5 text-sm">
+   <label>單位 <span class="text-red-600">*</span><select id="survey-unit" class="block w-full border rounded p-2 bg-white"><option>ER</option><option>AICU</option><option>W51</option><option>W52</option><option>W72</option><option>W82</option><option selected>W91</option><option>W92</option></select></label>
+   <label>稽核日期 <span class="text-red-600">*</span><input type="date" id="survey-date" required class="block w-full border rounded p-2 bg-white"></label>
+   <div>資料收集法 <span class="text-red-600">*</span><div class="flex gap-4 mt-2"><label><input type="checkbox" name="collect-method" value="口述"> 口述</label><label><input type="checkbox" name="collect-method" value="觀察" checked> 觀察</label></div></div>
+   <label>稽核人員 <span class="text-red-600">*</span><input type="text" id="survey-auditor" maxlength="50" class="block w-full border rounded p-2 bg-white" placeholder="請輸入姓名"></label>
+   <label class="sm:col-span-2">被稽核人員 <input type="text" id="audited-person" maxlength="100" class="block w-full border rounded p-2 bg-white" placeholder="請輸入姓名"></label>
+  </div>
+  <div class="overflow-x-auto"><table class="min-w-[650px] w-full border-collapse text-sm"><thead><tr class="bg-amber-700 text-white"><th class="border p-2 w-14">項次</th><th class="border p-2 text-left">執行情況／稽核項目</th><th class="border p-2 w-52">評核結果</th><th class="border p-2 w-56">備註</th></tr></thead><tbody id="questionnaire-tbody"></tbody></table></div>
+  <div class="mt-5 flex flex-wrap items-center justify-between gap-3 bg-amber-50 p-4 rounded-lg no-print"><div>總計得分百分比：<strong id="score-percentage" class="text-xl text-amber-800">100.00</strong> %<p class="text-xs text-slate-500">◎ 有做到 1 分、× 未做 0 分、N 不適用不計分</p></div><div class="flex flex-wrap gap-2"><button type="button" onclick="printSurvey()" class="bg-slate-700 text-white font-medium rounded px-4 py-2.5">列印 A4 稽核表</button><button id="submit-survey" type="button" onclick="submitAuditForm()" class="bg-emerald-700 text-white font-bold rounded px-5 py-2.5">送出並儲存至 Firebase</button></div></div>
+  <div class="mt-6 text-xs text-slate-500">名詞介紹：I 介紹、S 情境、B 背景、A 評估、R 建議。</div>
+ </section>
+ <section id="view-admin" class="hidden space-y-5">
+  <div id="login-box" class="max-w-md mx-auto bg-white border rounded-xl p-7 text-center no-print mt-8"><h2 class="font-bold text-lg mb-2">後台管理員登入 🔒</h2><p class="text-xs text-slate-600 mb-4">使用既有 Firebase 管理員電子郵件及密碼。</p><input type="email" id="admin-email" autocomplete="username" placeholder="Firebase 管理員電子郵件" class="w-full border rounded px-3 py-2 mb-3"><input type="password" id="admin-password" autocomplete="current-password" placeholder="Firebase 登入密碼" onkeydown="if(event.key==='Enter')loginAdmin()" class="w-full border rounded px-3 py-2 mb-4"><button type="button" id="admin-login-button" onclick="loginAdmin()" class="w-full bg-amber-700 text-white rounded py-2">登入後台</button></div>
+  <div id="admin-content" class="hidden">
+   <div class="no-print bg-white rounded-xl border p-4 flex flex-wrap gap-3 items-end justify-between mb-5">
+    <label class="text-sm">統計月份 <input id="report-month" type="month" onchange="changeMonth()" class="block border rounded px-3 py-2"></label>
+    <div class="flex flex-wrap gap-2"><button type="button" onclick="saveReport()" class="bg-amber-700 text-white rounded px-4 py-2 text-sm">儲存當月分析與簽名</button><button type="button" onclick="printReport()" class="bg-slate-800 text-white rounded px-4 py-2 text-sm">列印 A4 直式結果單</button><button type="button" onclick="exportExcel()" class="bg-emerald-700 text-white rounded px-4 py-2 text-sm">匯出 Excel</button><button type="button" onclick="logoutAdmin()" class="bg-slate-200 rounded px-4 py-2 text-sm">登出 🔒</button></div>
+    <p id="report-status" role="status" class="w-full text-xs text-slate-600">等待雲端同步…</p>
+   </div>
+   <article id="report-sheet" class="print-surface bg-white rounded-xl border shadow-sm px-5 py-7 md:px-8 md:py-8 text-black">
+    <div class="text-right text-[10px] leading-snug">89.01 制定<br>113.02.23 第 10 次修訂</div>
+    <div class="text-center mb-5"><h2 class="text-2xl font-bold tracking-widest">高雄市立聯合醫院護理科</h2><p class="text-xs mt-1">（高雄榮民總醫院營運管理）</p><h3 class="text-xl font-bold tracking-wider mt-2">護理交接作業稽核結果</h3></div>
+    <div class="grid grid-cols-2 gap-x-5 gap-y-2 text-sm mb-4"><div>項目：<span class="border-b border-black">護理交接作業稽核</span></div><div></div><div>預定審核數：<strong id="print-count">N=80</strong> 份</div><div>年月：<strong id="print-month">—</strong></div><div>目前份數：<strong id="current-count">—</strong> 份</div><div>閾值：99 %</div><div>審核值：<strong id="print-rate">—</strong> %</div><div class="text-[11px]">達成率依已收表單的適用項目計算</div></div>
+    <table id="result-table" class="report-table text-[11px]"><thead><tr class="bg-slate-100"><th style="width:7mm"></th><th style="width:27mm">項目／單位</th><th>W91</th><th>W92</th><th>W82</th><th>W72</th><th>W51</th><th>W52</th><th>AICU</th><th>ER</th><th>平均／總計</th></tr></thead><tbody id="result-body"></tbody></table>
+    <div class="text-right text-xs border-x border-b border-black px-2 py-1">審核者：單位護理長自審</div>
+    <div class="border-x border-b border-black flex"><div class="w-8 shrink-0 border-r border-black flex items-center justify-center text-xs" style="writing-mode:vertical-rl">原因分析</div><div class="w-full p-2"><textarea id="report-cause" maxlength="6000" rows="5" oninput="markDirty();mirrorReport()" class="screen-only w-full resize-y outline-none text-sm" placeholder="請輸入當月原因分析"></textarea><div id="print-cause" class="print-only narrative"></div></div></div>
+    <div class="border-x border-b border-black flex"><div class="w-8 shrink-0 border-r border-black flex items-center justify-center text-xs" style="writing-mode:vertical-rl">改善措施</div><div class="w-full p-2"><textarea id="report-improvement" maxlength="6000" rows="5" oninput="markDirty();mirrorReport()" class="screen-only w-full resize-y outline-none text-sm" placeholder="請輸入當月改善措施"></textarea><div id="print-improvement" class="print-only narrative"></div></div></div>
+    <div class="grid grid-cols-3 gap-5 mt-5 text-sm"><label>製表者：<input id="report-maker" maxlength="50" oninput="markDirty()" class="signature-line w-full outline-none" placeholder="請輸入姓名"></label><label>小組長：<input id="report-leader" maxlength="50" oninput="markDirty()" class="signature-line w-full outline-none" placeholder="請輸入姓名"></label><label>品質組組長：<input id="report-quality" maxlength="50" oninput="markDirty()" class="signature-line w-full outline-none" placeholder="請輸入姓名"></label></div>
+   </article>
+   <section id="detail-list" class="no-print bg-white border rounded-xl p-4 mt-5"><div class="flex flex-wrap justify-between gap-3 mb-3"><h3 class="font-bold">當月稽核原始明細</h3><button type="button" onclick="deleteMonth()" class="text-red-700 text-xs underline">刪除當月所有紀錄</button></div><div class="overflow-x-auto"><table class="min-w-[720px] w-full text-xs"><thead class="bg-slate-100"><tr><th class="p-2">日期</th><th>單位</th><th>稽核人員</th><th>被稽核人員</th><th>評核</th><th>操作</th></tr></thead><tbody id="detail-body"></tbody></table></div></section>
+  </div>
+ </section>
+</main>
+<footer class="no-print text-center text-xs text-slate-500 py-4">高雄市立聯合醫院護理科・護理交接作業稽核</footer>
+<script>
+const firebaseConfig={apiKey:"AIzaSyBbnsCVvom_r6aMFJMEgAlW2seF6t3fHnc",authDomain:"kmuh-medication-safety-a4427.firebaseapp.com",projectId:"kmuh-medication-safety-a4427",storageBucket:"kmuh-medication-safety-a4427.firebasestorage.app",messagingSenderId:"645622428321",appId:"1:645622428321:web:9c19d2e584a5cf57da76e0"};
+const recordCollection='kmuh_handoff_records',reportCollection='kmuh_handoff_admin_meta';
+const units=['W91','W92','W82','W72','W51','W52','AICU','ER'];
+const activeUnits=units;
+const scoredIds=[1,2,3,4,6,7,8,9,10,11,12,13];
+const questionnaireItems=[
+{id:1,title:'一.報告病人總數、動態與重要事項',category:'一般交班'},
+{id:2,title:'二.備好書面交班單交班',category:'書面交班'},
+{id:3,title:'三.到病人單位進行口頭交班(並維護隱私)',category:'床邊口頭交班'},
+{id:4,title:'四.介紹(I):自我介紹與確認交班對象，並更換負責護理師名牌',category:'介紹 (Introduction)'},
+{id:5,title:'五.病情交班：',category:'病情交班大標題',isHeader:true},
+{id:6,title:'1.情境(S):診斷',category:'情境 (Situation)'},
+{id:7,title:'2.情境(S):病人現況或觀察到改變狀況，包括跌倒評估、壓傷高危險評估',category:'情境 (Situation)'},
+{id:8,title:'3.背景(B):重要病史、目前特殊用藥及治療情形',category:'背景 (Background)'},
+{id:9,title:'4.評估(A):最近一次生命徵象,各類檢查/檢驗結果、特殊管路及裝置、目前處理進度與仍需追蹤之檢查/檢驗報告,當日檢查或手術',category:'評估 (Assessment)'},
+{id:10,title:'5.建議(R):後續處理措施或方向、可能發生危急狀況的預防',category:'建議 (Recommendation)'},
+{id:11,title:'六.共同檢視病人情況或管路(需要時能拉上圍簾)',category:'共同檢視'},
+{id:12,title:'七.接觸病人前正確洗手',category:'感管防護'},
+{id:13,title:'八.接觸病人後正確洗手',category:'感管防護'}
+];
+let app,auth,db,cloudReady=false,admin=false,connecting=false,submitting=false,records=[],reports={},recordsReady=false,reportsReady=false,unsubs=[],dirty=false;
+const $=id=>document.getElementById(id);
+function notify(message){$('cloud-status').textContent=message;$('retry-cloud').classList.toggle('hidden',!message.includes('失敗'));$('survey-status').textContent=message.includes('連線')||message.includes('失敗')?message:'Firebase 已連線；送出成功才算儲存。'}
+function errorMessage(e){const code=e&&e.code?e.code:'';return code==='permission-denied'?'Firestore 規則拒絕存取；請確認新增護理交接作業集合的規則已發布。':code==='auth/operation-not-allowed'?'Firebase 尚未啟用匿名登入。':(e&&e.message?e.message:'未知錯誤')}
+function cloudError(action,e){console.error(action,e);notify(action+'失敗 ('+(e&&e.code||'unknown')+')');alert(action+'失敗：'+errorMessage(e)+'\n尚未確認資料寫入雲端。')}
+async function connectFirebase(){if(connecting)return;connecting=true;notify('Firebase 連線中');try{if(!window.firebase||!firebase.auth||!firebase.firestore)throw Error('Firebase SDK 載入失敗，請檢查網路。');app=firebase.apps.length?firebase.app():firebase.initializeApp(firebaseConfig);auth=app.auth();db=app.firestore();if(!auth.currentUser)await auth.signInAnonymously();cloudReady=true;notify(admin?'管理員已連線':'Firebase 已連線');}catch(e){cloudReady=false;cloudError('Firebase 連線',e)}finally{connecting=false}}
+function renderQuestionnaire(){const body=$('questionnaire-tbody');body.innerHTML='';for(const item of questionnaireItems){const tr=document.createElement('tr');if(item.isHeader){tr.className='bg-amber-100 font-bold';tr.innerHTML='<td class="border p-2">—</td><td colspan="3" class="border p-2">'+item.title+'</td>'}else{tr.innerHTML='<td class="border p-2 text-center">'+(item.id>5?item.id-1:item.id)+'</td><td class="border p-2"><b>'+item.title+'</b><small class="block text-slate-500">'+item.category+'</small></td><td class="border p-2"><div class="flex flex-wrap gap-1" role="group" aria-label="第'+item.id+'項評核"><button type="button" data-status="yes" data-id="'+item.id+'" class="result-choice px-2 py-1 rounded bg-emerald-700 text-white">◎ 有</button><button type="button" data-status="no" data-id="'+item.id+'" class="result-choice px-2 py-1 rounded bg-slate-100">× 無</button><button type="button" data-status="na" data-id="'+item.id+'" class="result-choice px-2 py-1 rounded bg-slate-100">N 不適用</button></div><input type="hidden" id="q-'+item.id+'" value="yes"></td><td class="border p-2"><input id="remark-'+item.id+'" maxlength="500" class="border rounded px-2 py-1 w-full" placeholder="備註（選填）"></td>'}body.appendChild(tr)}body.querySelectorAll('.result-choice').forEach(btn=>btn.addEventListener('click',()=>setResult(Number(btn.dataset.id),btn.dataset.status)));calculateScore()}
+function setResult(id,value){$('q-'+id).value=value;document.querySelectorAll('.result-choice[data-id="'+id+'"]').forEach(button=>{const active=button.dataset.status===value;button.className='result-choice px-2 py-1 rounded '+(active?(value==='no'?'bg-rose-700':'bg-emerald-700')+' text-white':'bg-slate-100 text-slate-700')});calculateScore()}
+function score(results){const applicable=results.filter(r=>r.status!=='na');return{achieved:applicable.filter(r=>r.status==='yes').length,scored:applicable.length}}
+function calculateScore(){const results=scoredIds.map(id=>({status:$('q-'+id).value}));const s=score(results);$('score-percentage').textContent=s.scored?(100*s.achieved/s.scored).toFixed(2):'—';return s}
+function requireCloud(){if(cloudReady&&db&&auth&&auth.currentUser)return true;alert('Firebase 尚未連線；表單尚未儲存，請先按重新連線。');return false}
+function requireAdmin(){if(admin&&requireCloud())return true;alert('請先以 Firebase 管理員帳號登入。');return false}
+async function submitAuditForm(){if(submitting||!requireCloud())return;const unit=$('survey-unit').value,date=$('survey-date').value,auditor=$('survey-auditor').value.trim(),auditedPerson=$('audited-person').value.trim(),methods=[...document.querySelectorAll('input[name="collect-method"]:checked')].map(x=>x.value).join(', ');if(!activeUnits.includes(unit)||!/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(date)||!auditor||!methods){alert('請填妥單位、日期、資料收集法與稽核人員。');return}if(auditor.length>50||auditedPerson.length>100){alert('姓名欄位超過字數限制。');return}const results=scoredIds.map(id=>({id,status:$('q-'+id).value,remark:$('remark-'+id).value.trim().slice(0,500)}));const id='handoff_'+Date.now()+'_'+Math.random().toString(36).slice(2,10);const record={id,date,unit,auditor,auditedPerson,methods,results,createdAt:new Date().toISOString()};if(navigator.onLine===false){alert('目前離線，請連線後重試。');return}submitting=true;$('submit-survey').disabled=true;notify('正在寫入 Firebase');try{await db.collection(recordCollection).doc(id).set(record);notify('Firebase 已連線');alert('護理交接作業稽核表已儲存至 Firebase。');$('survey-auditor').value='';$('audited-person').value='';renderQuestionnaire()}catch(e){cloudError('儲存稽核表',e)}finally{submitting=false;$('submit-survey').disabled=false}}
+function showPage(page){$('view-survey').classList.toggle('hidden',page!=='survey');$('view-admin').classList.toggle('hidden',page!=='admin');$('tab-survey').className='px-4 py-2 rounded-lg text-sm '+(page==='survey'?'bg-white text-amber-900 font-bold shadow-sm':'bg-amber-200 text-amber-900');$('tab-admin').className='px-4 py-2 rounded-lg text-sm '+(page==='admin'?'bg-white text-amber-900 font-bold shadow-sm':'bg-amber-200 text-amber-900');if(page==='admin'&&admin)renderReport()}
+function stopListeners(){unsubs.forEach(fn=>fn());unsubs=[];recordsReady=false;reportsReady=false}
+function startListeners(){stopListeners();notify('管理員資料同步中');unsubs.push(db.collection(recordCollection).onSnapshot(snapshot=>{records=snapshot.docs.map(x=>x.data());recordsReady=true;renderReport()},e=>{recordsReady=false;$('report-status').textContent='讀取稽核紀錄失敗：'+errorMessage(e);notify('讀取稽核紀錄失敗')}));unsubs.push(db.collection(reportCollection).onSnapshot(snapshot=>{reports={};snapshot.forEach(doc=>reports[doc.id]=doc.data());reportsReady=true;loadReportFields();renderReport()},e=>{reportsReady=false;$('report-status').textContent='讀取月報失敗：'+errorMessage(e);notify('讀取月報失敗')}))}
+async function loginAdmin(){if(!cloudReady)return alert('請先等 Firebase 連線完成。');const email=$('admin-email').value.trim(),password=$('admin-password').value;if(!email||!password)return alert('請輸入 Firebase 管理員電子郵件與密碼。');$('admin-login-button').disabled=true;try{const credential=await auth.signInWithEmailAndPassword(email,password);const adminDoc=await db.collection('admins').doc(credential.user.uid).get();if(!adminDoc.exists||adminDoc.data().role!=='admin')throw Error('此帳號沒有管理員權限（admins/{UID}.role 應為 admin）。');admin=true;records=[];reports={};$('admin-password').value='';$('login-box').classList.add('hidden');$('admin-content').classList.remove('hidden');startListeners();renderReport()}catch(e){stopListeners();admin=false;$('login-box').classList.remove('hidden');$('admin-content').classList.add('hidden');try{await auth.signOut();await auth.signInAnonymously();cloudReady=true;notify('Firebase 已連線')}catch(restore){cloudReady=false;cloudError('恢復前台連線',restore)}alert('管理員登入失敗：'+errorMessage(e))}finally{$('admin-login-button').disabled=false}}
+async function logoutAdmin(){stopListeners();admin=false;records=[];reports={};dirty=false;$('login-box').classList.remove('hidden');$('admin-content').classList.add('hidden');$('admin-password').value='';showPage('survey');try{await auth.signOut();await auth.signInAnonymously();notify('Firebase 已連線')}catch(e){cloudReady=false;cloudError('登出後重新連線',e)}}
+function monthRecords(){const month=$('report-month').value;return records.filter(r=>r.date&&r.date.startsWith(month+'-'))}
+function aggregate(list){const result={};for(const u of activeUnits)result[u]={achieved:0,scored:0,count:0};for(const rec of list){if(!result[rec.unit]||!Array.isArray(rec.results))continue;const s=score(rec.results);result[rec.unit].achieved+=s.achieved;result[rec.unit].scored+=s.scored;result[rec.unit].count++}return result}
+function rocMonth(month){const m=/^(\d{4})-(\d{2})$/.exec(month||'');return m?(Number(m[1])-1911)+'年'+m[2]+'月':'—'}
+function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}
+function renderReport(){if(!admin)return;const month=$('report-month').value;$('print-month').textContent=rocMonth(month);if(!recordsReady){$('current-count').textContent='尚未同步';$('print-rate').textContent='—';$('result-body').innerHTML='<tr><td colspan="11" class="p-3 text-center">正在讀取稽核資料；尚未確認雲端統計</td></tr>';$('report-status').textContent='正在讀取雲端稽核資料…';return}const list=monthRecords(),by=aggregate(list),total={achieved:0,scored:0,count:0};for(const u of activeUnits){for(const k of ['achieved','scored','count'])total[k]+=by[u][k]}$('current-count').textContent=String(total.count);$('print-rate').textContent=total.scored?(100*total.achieved/total.scored).toFixed(2):'—';const rows=[['已完成項目／目標項目',(x,target)=>(x.achieved||'—')+'／'+target],['達成率（已收適用項目）',x=>x.scored?(100*x.achieved/x.scored).toFixed(2)+'%':'—'],['目前份數',x=>String(x.count)]];$('result-body').innerHTML=rows.map((row,i)=>'<tr>'+(i===0?'<th class="side-cell" rowspan="3">審核結果</th>':'')+'<th class="text-left bg-slate-50">'+row[0]+'</th>'+units.map(u=>'<td class="text-center">'+row[1](by[u],120)+'</td>').join('')+'<td class="text-center font-bold">'+row[1](total,960)+'</td></tr>').join('');renderDetails(list);$('report-status').textContent=reportsReady?'雲端資料已同步；統計月份 '+rocMonth(month):'稽核紀錄已同步，月報資料讀取中…'}
+function renderDetails(list){const body=$('detail-body');if(!list.length){body.innerHTML='<tr><td colspan="6" class="text-center p-4 text-slate-500">當月尚無稽核紀錄</td></tr>';return}body.innerHTML=list.slice().sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))).map(r=>{const s=score(r.results||[]);return '<tr class="border-b"><td class="p-2">'+escapeHtml(r.date)+'</td><td>'+escapeHtml(r.unit)+'</td><td>'+escapeHtml(r.auditor)+'</td><td>'+escapeHtml(r.auditedPerson)+'</td><td>'+(s.scored?(100*s.achieved/s.scored).toFixed(2)+'%':'不適用')+'</td><td><button type="button" data-id="'+escapeHtml(r.id)+'" class="delete-record text-red-700 underline">刪除</button></td></tr>'}).join('');body.querySelectorAll('.delete-record').forEach(b=>b.addEventListener('click',()=>deleteRecord(b.dataset.id)))}
+function loadReportFields(){if(!admin||dirty)return;const data=reports[$('report-month').value]||{};$('report-cause').value=data.cause||'';$('report-improvement').value=data.improvement||'';$('report-maker').value=data.maker||'';$('report-leader').value=data.groupLeader||'';$('report-quality').value=data.qualityLeader||'';mirrorReport()}
+function mirrorReport(){$('print-cause').textContent=$('report-cause').value||'　';$('print-improvement').textContent=$('report-improvement').value||'　'}
+function markDirty(){dirty=true;$('report-status').textContent='本月份文字尚未儲存至 Firebase'}
+function changeMonth(){if(dirty&&!confirm('目前月份的分析或簽名尚未儲存，確定切換月份？')){$('report-month').value=changeMonth.previous;return}changeMonth.previous=$('report-month').value;dirty=false;loadReportFields();renderReport()}
+async function saveReport(){if(!requireAdmin()||!recordsReady||!reportsReady)return alert('請等雲端資料同步完成後再儲存。');const month=$('report-month').value;if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))return alert('請選擇月份。');const data={cause:$('report-cause').value.trim(),improvement:$('report-improvement').value.trim(),maker:$('report-maker').value.trim(),groupLeader:$('report-leader').value.trim(),qualityLeader:$('report-quality').value.trim()};try{await db.collection(reportCollection).doc(month).set(data);reports[month]=data;dirty=false;$('report-status').textContent='已儲存 '+rocMonth(month)+' 的分析與簽名至 Firebase';alert('月報已儲存至 Firebase。')}catch(e){cloudError('儲存月報',e)}}
+async function deleteRecord(id){if(!requireAdmin()||!confirm('確定永久刪除此筆雲端稽核紀錄？'))return;try{await db.collection(recordCollection).doc(id).delete()}catch(e){cloudError('刪除紀錄',e)}}
+async function deleteMonth(){if(!requireAdmin()||!recordsReady)return;const list=monthRecords();if(!list.length)return alert('當月沒有可刪除紀錄。');if(!confirm('確定要永久刪除 '+rocMonth($('report-month').value)+' 的 '+list.length+' 筆雲端稽核紀錄？'))return;let deleted=0;try{for(const r of list){await db.collection(recordCollection).doc(r.id).delete();deleted++}alert('已刪除 '+deleted+' 筆。')}catch(e){cloudError('刪除當月紀錄（已刪除 '+deleted+' 筆）',e)}}
+function printReport(){if(!requireAdmin()||!recordsReady||!reportsReady)return alert('請等雲端統計完成後再列印。');mirrorReport();document.body.classList.add('print-admin');window.print()}
+function printSurvey(){document.body.classList.add('print-survey');window.print()}
+window.addEventListener('afterprint',()=>document.body.classList.remove('print-admin','print-survey'));
+function exportExcel(){if(!requireAdmin()||!recordsReady||!reportsReady)return alert('請等雲端統計完成後再匯出。');if(!window.XLSX)return alert('Excel 程式尚未載入，請檢查網路。');const month=$('report-month').value,list=monthRecords(),by=aggregate(list),total={achieved:0,scored:0,count:0};for(const u of activeUnits)for(const key of ['achieved','scored','count'])total[key]+=by[u][key];const fmt=x=>x.scored?(100*x.achieved/x.scored).toFixed(2)+'%':'—';const cols=units.map(u=>by[u]);const rows=[['高雄市立聯合醫院護理科 護理交接作業稽核結果'],['年月',rocMonth(month),'預定審核數','N=80 份','目前份數',total.count,'閾值','99%'],['項目／單位',...units,'平均／總計'],['已完成項目／目標項目',...cols.map(x=>(x.achieved||'—')+'/120'),(total.achieved||'—')+'/960'],['達成率（已收適用項目）',...cols.map(fmt),fmt(total)],['目前份數',...cols.map(x=>x.count),total.count],[],['原因分析',$('report-cause').value],['改善措施',$('report-improvement').value],['製表者',$('report-maker').value,'小組長',$('report-leader').value,'品質組組長',$('report-quality').value]];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(rows),'稽核結果');const raw=list.map(r=>{const s=score(r.results||[]);return{'日期':r.date,'單位':r.unit,'稽核人員':r.auditor,'被稽核人員':r.auditedPerson,'資料收集法':r.methods,'做到數':s.achieved,'適用數':s.scored,'單份達成率（適用題）':fmt(s),'備註':(r.results||[]).filter(x=>x.remark).map(x=>x.id+': '+x.remark).join('；')}});XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(raw.length?raw:[{'當月紀錄':'無'}]),'原始明細');XLSX.writeFile(wb,'護理交接作業稽核結果_'+rocMonth(month)+'.xlsx')}
+function init(){const today=new Date(),local=new Date(today.getTime()-today.getTimezoneOffset()*60000).toISOString().slice(0,10);$('survey-date').value=local;$('report-month').value=local.slice(0,7);changeMonth.previous=$('report-month').value;renderQuestionnaire();connectFirebase()}
+init();
+</script>
+</body>
+</html>
